@@ -2527,7 +2527,7 @@ class Molecule(object):
             else:
                 line = re.sub(r"([0-9])(-[0-9])", r"\1 \2", line)
                 sline = line.split()
-                xyz.append([float(i) for i in sline[1:]])
+                xyz.append([float(i) for i in sline[1:4]])
                 if len(elem) < na:
                     elem.append(sline[0])
                 an += 1
