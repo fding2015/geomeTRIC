@@ -149,7 +149,7 @@ class CartesianX(object):
         return not self.__eq__(other)
         
     def value(self, xyz):
-        xyz = xyz[:, 0:3].reshape(-1,3)
+        xyz = xyz.reshape(-1,3)
         a = self.a
         return xyz[a][0]*self.w
         
