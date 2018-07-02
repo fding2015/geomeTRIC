@@ -11,7 +11,7 @@ import numpy as np
 import re
 import os
 
-import StringIO
+import six
 
 from .molecule import Molecule
 from .nifty import eqcgmx, fqcgmx, bohr2ang, getWorkQueue, queue_up_src_dest
@@ -771,9 +771,9 @@ def get_structure_filename(s):
 
 
 def replace_option(s, command, option, new_option, value):
-    if not isinstance(command, basestring) and len(command) == 1:
+    if not isinstance(command, six.string_types) and len(command) == 1:
         command = command[0]
-    if isinstance(command, basestring):
+    if isinstance(command, six.string_types):
         block_start, block_end = find_command_block(s, command)
 
         option_start = s.find(option, block_start, block_end)
@@ -796,7 +796,8 @@ def get_energy_and_gradient(content):
 
     energy, gradient = None, []
     found_grad = False
-    buf = StringIO.StringIO(content)
+
+    buf = six.StringIO(content.decode("latin-1"))
     for line in buf:
         if found_grad is True:
             fields = line.split()
@@ -873,13 +874,13 @@ class Entos(Engine):
                                             'file',
                                             'xyz',
                                             str(entos_xyz))
-        
+
         p = subprocess.Popen([self.exe, self.nt()],
                          stdout=subprocess.PIPE,
                          stdin=subprocess.PIPE,
                          stderr=subprocess.STDOUT,
                          cwd=dirname)
-        self.entos_output = p.communicate(input=calc_input_content)[0]
+        self.entos_output = p.communicate(input=six.b(calc_input_content))[0]
 
         # Read energy and gradients from entos output
         return get_energy_and_gradient(self.entos_output)
