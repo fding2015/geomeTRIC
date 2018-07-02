@@ -811,6 +811,8 @@ def get_energy_and_gradient(content):
             found_grad = True
         if "Total energy (hartree)" in line:
             energy = float(line.split()[-1])
+        if "energy:" in line:
+            energy = float(line.split()[-1])
     if energy is None:
         print(content)
         raise RuntimeError("entos energy is not found in output, please check.")
