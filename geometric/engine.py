@@ -11,6 +11,8 @@ import numpy as np
 import re
 import os
 
+import StringIO
+
 from .molecule import Molecule
 from .nifty import eqcgmx, fqcgmx, bohr2ang, getWorkQueue, queue_up_src_dest
 
@@ -704,3 +706,187 @@ class QCEngineAPI(Engine):
         # overwrites the calc method of base class to skip caching and creating folders
         return self.calc_new(coords, dirname)
 
+def find_parentheses(s, paren_type = ['(', ')'], beg=0, end=None):
+    """ Returns the location of the matching parentheses pairs in s.
+
+    Given a string, s, return a dictionary of start: end pairs giving the
+    indexes of the matching parentheses in s. Suitable exceptions are
+    raised if s contains unbalanced parentheses.
+
+    """
+
+    if end is None:
+        end = len(s)
+
+    stack = []
+    parentheses_locs = {}
+    for i, c in enumerate(s[beg:end], beg):
+        if c == paren_type[0]:
+            stack.append(i)
+        elif c == paren_type[1]:
+            try:
+                parentheses_locs[stack.pop()] = i
+            except IndexError:
+                raise IndexError('Too many close parentheses at index {}'
+                                                                .format(i))
+    if stack:
+        raise IndexError('No matching close parenthesis to open parenthesis '
+                         'at index {}'.format(stack.pop()))
+    return parentheses_locs
+
+def find_command_block(s, command):
+    blocks = find_parentheses(s)
+    command_start = s.find(command)
+    command_block_start = min(filter(lambda x: x > command_start, blocks))
+    command_block_end = blocks[command_block_start]
+    return [command_block_start+1, command_block_end-1]
+
+def find_option_value(s, option, beg=0, end=None):
+    if end is None:
+        end = len(s)
+    option_start = s.find(option, beg, end)
+
+    option_assignment = s.find("=", option_start)
+
+    value_start = option_assignment+1 + len(s[option_assignment+1:]) - len(s[option_assignment+1:].lstrip())
+
+    if s[value_start] == "'":
+        end_quote = s.find("'", value_start+1)
+        return [value_start, end_quote]
+    elif s[value_start] == "[":
+        paren_blocks = find_parentheses(s, ["[", "]"])
+        paren_end = paren_blocks[value_start]
+        return [value_start, paren_end]
+    else:
+        next_space = s.find(" ", value_start+1)
+        return [value_start, next_space-1]
+
+def get_structure_filename(s):
+    block_start, block_end = find_command_block(s, "structure")
+    print(block_start, block_end)
+    value_start, value_end = find_option_value(s, "file", block_start, block_end)
+    print(value_start, value_end)
+    filename = s[value_start:value_end+1]
+    return filename
+
+
+def replace_option(s, command, option, new_option, value):
+    if not isinstance(command, basestring) and len(command) == 1:
+        command = command[0]
+    if isinstance(command, basestring):
+        block_start, block_end = find_command_block(s, command)
+
+        option_start = s.find(option, block_start, block_end)
+        option_end = option_start + len(option)
+
+        value_start, value_end = find_option_value(s, option, block_start, block_end)
+
+        return s.replace(s[option_start:value_end+1], new_option + " = " + value)
+
+    else:
+        block_start, block_end = find_command_block(s, command[0])
+        return s[0:block_start] + \
+               replace_option(s[block_start:block_end],
+                              command[1:],
+                              option, new_option, value) + \
+               s[block_end:]
+
+def get_energy_and_gradient(content):
+    """ read an output file from entos"""
+
+    energy, gradient = None, []
+    found_grad = False
+    buf = StringIO.StringIO(content)
+    for line in buf:
+        if found_grad is True:
+            fields = line.split()
+            if len(fields) == 4:
+                if fields[0].isdigit():
+                    gradient.append(list(map(float, fields[1:4])))
+            else:
+                found_grad = False
+        if "Gradients" in line:
+            next(buf)
+            found_grad = True
+        if "Total energy (hartree)" in line:
+            energy = float(line.split()[-1])
+    if energy is None:
+        print(content)
+        raise RuntimeError("entos energy is not found in output, please check.")
+    if not gradient:
+        print(content)
+        raise RuntimeError("entos gradient is not found in output, please check.")
+    gradient = np.array(gradient, dtype=np.float64).ravel()
+    return energy, gradient
+
+class Entos(Engine):
+    """ An Entos energy and gradient engine """
+
+    def __init__(self, filename, threads = None, exe = None):
+        # create a fake molecule
+        molecule = Molecule()
+        molecule.elem = ['H']
+        molecule.xyzs = [[[0, 0, 0]]]
+        super(Entos, self).__init__(molecule)
+        self.threads = threads
+        self.exe = exe
+        self.init_from_input(filename)
+        self.entos_output = None
+
+    @property
+    def exe(self):
+        """ Executable for entos """
+        return self._exe
+
+    @exe.setter
+    def exe(self, exe):
+        """ Set executable for entos. If None, entos will be used """
+        self._exe = "entos"
+        if exe is not None:
+            self._exe = exe
+
+    def nt(self):
+        """ string form of number of threads for entos exe """
+        if self.threads is not None:
+            return " -n %i" % self.threads
+        else:
+            return ""
+
+    def init_from_input(self, filename):
+        """ Initialise entos engine from a template file """
+        self.M = Molecule()
+        self.input_file_content = open(filename).read()
+        xyz_filename = get_structure_filename(self.input_file_content)
+        stuff = Molecule().read_xyz(xyz_filename.replace("'",""))
+        self.M.elem = stuff['elem']
+        self.M.xyzs = stuff['xyzs']
+        self.M.comms = stuff['comms']
+
+    def calc_new(self, coords, dirname):
+        if not os.path.exists(dirname):
+            os.makedirs(dirname)
+        self.M.xyzs[0] = coords.reshape(-1, 3) * bohr2ang
+        entos_xyz = [[self.M.elem[i]] + xyz
+                     for i, xyz in enumerate(self.M.xyzs[0].tolist())]
+        calc_input_content = replace_option(self.input_file_content,
+                                            'structure',
+                                            'file',
+                                            'xyz',
+                                            str(entos_xyz))
+        
+        p = subprocess.Popen([self.exe, self.nt()],
+                         stdout=subprocess.PIPE,
+                         stdin=subprocess.PIPE,
+                         stderr=subprocess.STDOUT,
+                         cwd=dirname)
+        self.entos_output = p.communicate(input=calc_input_content)[0]
+
+        # Read energy and gradients from entos output
+        return get_energy_and_gradient(self.entos_output)
+
+    def number_output(self, dirname, calcNum):
+        if self.entos_output is None:
+            raise RuntimeError('No entos output to write')
+        f = open(os.path.join(dirname,'run_%03i.out' % calcNum))
+        f.write(self.entos_output)
+        f.close()

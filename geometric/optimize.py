@@ -8,7 +8,7 @@ import sys
 
 import numpy as np
 
-from .engine import set_tcenv, load_tcin, TeraChem, Psi4, QChem, Gromacs, Molpro, QCEngineAPI
+from .engine import set_tcenv, load_tcin, TeraChem, Psi4, QChem, Gromacs, Molpro, QCEngineAPI, Entos
 from .internal import *
 from .molecule import Molecule, Elements
 from .nifty import row, col, flat, invert_svd, uncommadash, isint, bohr2ang, ang2bohr
@@ -1337,6 +1337,8 @@ def get_molecule_engine(**kwargs):
     molpro = kwargs.get('molpro', False)
     qcengine = kwargs.get('qcengine', False)
     molproexe = kwargs.get('molproexe', None)
+    entos = kwargs.get('entos', False)
+    exe = kwargs.get('exe', None)
     pdb = kwargs.get('pdb', None)
     frag = kwargs.get('frag', False)
     inputf = kwargs.get('input')
@@ -1391,6 +1393,9 @@ def get_molecule_engine(**kwargs):
             raise RuntimeError("QCEngineAPI option requires a qce_program option")
 
         engine = QCEngineAPI(schema, program)
+        M = engine.M
+    elif entos:
+        engine = Entos(inputf, nt, exe)
         M = engine.M
     else:
         set_tcenv()
@@ -1545,6 +1550,8 @@ def main():
     parser.add_argument('--gmx', action='store_true', help='Compute gradients in Gromacs (requires conf.gro, topol.top, shot.mdp).')
     parser.add_argument('--molpro', action='store_true', help='Compute gradients in Molpro.')
     parser.add_argument('--molproexe', type=str, default=None, help='Specify absolute path of Molpro executable.')
+    parser.add_argument('--entos', action='store_true', help='Compute gradients in entos.')
+    parser.add_argument('--exe', type=str, default=None, help='Specify absolute path of the relavant executable.')
     parser.add_argument('--molcnv', action='store_true', help='Use Molpro style convergence criteria instead of the default.')
     parser.add_argument('--prefix', type=str, default=None, help='Specify a prefix for output file and temporary directory.')
     parser.add_argument('--displace', action='store_true', help='Write out the displacements of the coordinates.')
