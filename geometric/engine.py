@@ -806,8 +806,11 @@ def get_energy_and_gradient(content):
                     gradient.append(list(map(float, fields[1:4])))
             else:
                 found_grad = False
-        if "Gradients" in line:
-            next(buf)
+        if "Gradient" in line:
+            line = next(buf)
+            if line.split() != ["X","Y","Z"]:
+                raise RuntimeError(
+                    "entos gradient must be read from line with 'Gradient' in followed by a line with 'X Y Z'")
             found_grad = True
         if "Total energy (hartree)" in line:
             energy = float(line.split()[-1])
