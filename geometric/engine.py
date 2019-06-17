@@ -880,7 +880,7 @@ class Entos(Engine):
                                             'xyz',
                                             str(entos_xyz))
 
-        p = subprocess.Popen([self.exe, self.nt()],
+        p = subprocess.Popen(self.exe,
                          stdout=subprocess.PIPE,
                          stdin=subprocess.PIPE,
                          stderr=subprocess.STDOUT,
